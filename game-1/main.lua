@@ -1,3 +1,3 @@
-function love.draw()
-    love.graphics.print("Hello World", 400, 300)
-end
+local fennel = require("fennel")
+table.insert(package.loaders or package.searchers, fennel.searcher)
+require("main0")
