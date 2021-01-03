@@ -2,13 +2,53 @@
 (var Obj {})
 (var TxtObj {})
 (var player {})
+(var enemy {})
 (var Pos {})
 (var Bullet {})
 (var bullets [])
+(var stats {})
+
+;; {{{ fonts
+(var fonts {})
+(fn fonts.load [self]
+  (doto self
+        (tset :default (love.graphics.newFont))
+        (tset :player (love.graphics.newFont 20)))
+  (love.graphics.setFont self.default))
+
+(fn fonts.with-font [self font f]
+  (if font
+    (do
+      (love.graphics.setFont font)
+      (let [res (f)]
+        (love.graphics.setFont self.default)
+        res))
+    (f)))
+;; }}}
 
 ;; {{{ Utils
 (fn x-coord [xt] (* xt (love.graphics.getWidth)))
 (fn y-coord [yt] (* yt (love.graphics.getHeight)))
+
+;; https://stackoverflow.com/questions/306316/determine-if-two-rectangles-overlap-each-other
+;; https://silentmatt.com/rectangle-intersection/
+(fn rect-overlap? [x11 y11 x12 y12
+                   x21 y21 x22 y22]
+  (and (<= x11 x22) (>= x12 x21)
+       (<= y11 y22) (>= y12 y21)))
+
+(fn obj->rect [obj]
+  (values
+    obj.xt
+    obj.yt
+    (+ obj.xt (obj:twidth))
+    (+ obj.yt (obj:theight))))
+
+(fn obj-overlap? [obj1 obj2]
+  (let [(x11 y11 x12 y12) (obj->rect obj1)
+        (x21 y21 x22 y22) (obj->rect obj2)]
+    (rect-overlap? x11 y11 x12 y12
+                   x21 y21 x22 y22)))
 
 (fn sin-wave [min-y max-y x-cycle x]
   (+ min-y
@@ -57,24 +97,27 @@
         :sx 1 :sy 1}))
 
 (fn TxtObj.draw [self]
-  (love.graphics.print
-    self.text
-    (x-coord self.xt)
-    (y-coord self.yt)
-    self.r
-    self.sx self.sy
-    self.ox self.oy
-    self.kx self.ky))
+  (fonts:with-font
+    self.font
+    (fn []
+      (love.graphics.print
+        self.text
+        (x-coord self.xt)
+        (y-coord self.yt)
+        self.r
+        self.sx self.sy
+        self.ox self.oy
+        self.kx self.ky))))
 
 (fn TxtObj.width [self]
-  (let [font (love.graphics.getFont)]
+  (let [font (or self.font (love.graphics.getFont))]
     (font:getWidth self.text)))
 
 (fn TxtObj.twidth [self]
   (/ (self:width) (love.graphics.getWidth)))
 
-(fn TxtObj.height [_]
-  (let [font (love.graphics.getFont)]
+(fn TxtObj.height [self]
+  (let [font (or self.font (love.graphics.getFont))]
     (font:getHeight)))
 
 (fn TxtObj.theight [self]
@@ -117,7 +160,7 @@
                                 :orig-xt xt
                                 :orig-yt yt
                                 :pos-x (Pos:new {:acc 0 :stop-acc 0 :max-v 0 :v 0 :pos 0 :push 0})
-                                :pos-y (Pos:new {:acc 4 :stop-acc 0 :max-v 0.6 :v -0.6 :pos 0 :push -1})}
+                                :pos-y (Pos:new {:acc 2 :stop-acc 0 :max-v 2 :v -0.6 :pos 0 :push -1})}
                                (setmetatable self))]
                    (set self.__index self)
                    o)))
@@ -130,44 +173,101 @@
 ;; }}}
 
 ;; {{{player
-(set
-  player
-  (doto
-    (TxtObj:new {:orig-xt 0.5
-                 :orig-yt 0.9
-                 :xt      0
-                 :yt      0
-                 :text "player"
-                 :pos-x (Pos:new {:acc 4 :stop-acc 1000 :max-v 1 :v 0 :pos 0 :push 0})
-                 :pos-y (Pos:new {:acc 4 :stop-acc 1000 :max-v 1 :v 0 :pos 0 :push 0})})
+(fn load-player []
+  (set
+    player
+    (doto
+      (TxtObj:new {:orig-xt 0.5
+                   :orig-yt 0.9
+                   :xt      0
+                   :yt      0
+                   :text "player"
+                   :font fonts.player
+                   :pos-x (Pos:new {:acc 4 :stop-acc 1000 :max-v 1 :v 0 :pos 0 :push 0})
+                   :pos-y (Pos:new {:acc 4 :stop-acc 1000 :max-v 1 :v 0 :pos 0 :push 0})})
 
-    (tset :update (fn [self dt]
-                    (self.pos-x:update! dt (- self.orig-xt) (- 1 (+ self.orig-xt (self:twidth))))
-                    (self.pos-y:update! dt (- self.orig-yt) (- 1 (+ self.orig-yt (self:theight))))
-                    (set self.xt (+ self.orig-xt self.pos-x.pos))
-                    (set self.yt (+ self.orig-yt self.pos-y.pos))))
+      (tset :update (fn [self dt]
+                      (self.pos-x:update! dt (- self.orig-xt) (- 1 (+ self.orig-xt (self:twidth))))
+                      (self.pos-y:update! dt (- self.orig-yt) (- 1 (+ self.orig-yt (self:theight))))
+                      (set self.xt (+ self.orig-xt self.pos-x.pos))
+                      (set self.yt (+ self.orig-yt self.pos-y.pos))))
 
-    (tset :move-left (fn [self dt] (self.pos-x:push-left!)))
-    (tset :move-right (fn [self dt] (self.pos-x:push-right!)))
-    (tset :move-up (fn [self dt] (self.pos-y:push-left!)))
-    (tset :move-down (fn [self dt] (self.pos-y:push-right!)))
-    (tset :no-move-x (fn [self] (self.pos-x:no-push!)))
-    (tset :no-move-y (fn [self] (self.pos-y:no-push!)))
+      (tset :move-left (fn [self dt] (self.pos-x:push-left!)))
+      (tset :move-right (fn [self dt] (self.pos-x:push-right!)))
+      (tset :move-up (fn [self dt] (self.pos-y:push-left!)))
+      (tset :move-down (fn [self dt] (self.pos-y:push-right!)))
+      (tset :no-move-x (fn [self] (self.pos-x:no-push!)))
+      (tset :no-move-y (fn [self] (self.pos-y:no-push!)))
 
-    (tset :shoot (fn [self]
-                   (table.insert bullets
-                                 (Bullet:new
-                                   (+ self.xt (/ (self:twidth) 2))
-                                   (- self.yt (self:theight))))))))
+      (tset :shoot (fn [self]
+                     (table.insert bullets
+                                   (Bullet:new
+                                     (+ self.xt (/ (self:twidth) 2))
+                                     (- self.yt (self:theight)))))))))
 ;; }}}
 
-(fn love.load [])
+;; {{{ enemy
+(fn load-enemy []
+  (set
+    enemy
+    (doto
+      (TxtObj:new {:orig-xt 0.5
+                   :orig-yt 0.01
+                   :xt 0
+                   :yt 0
+                   :text "enemy"
+                   :font fonts.player
+                   :pos-x (Pos:new {:acc 4 :stop-acc 1000 :max-v 0.2 :v 0 :pos 0 :push 0})
+
+                   :movement-period 0})
+      (tset :move-oscillate
+            (fn [self dt]
+              (set self.movement-period
+                   (+ self.movement-period
+                      (* (/ dt 4) (math.rad 360))))))
+      (tset :update (fn [self dt]
+                      (self:move-oscillate dt)
+                      (let [x (math.sin self.movement-period)]
+                        (if
+                          (< (math.abs x) 0.01) (self.pos-x:no-push!)
+                          (< x 0) (self.pos-x:push-left!)
+                          (> x 0) (self.pos-x:push-right!)))
+                      (self.pos-x:update! dt (- self.orig-xt) (- 1 (+ self.orig-xt (self:twidth))))
+                      (set self.xt (+ self.orig-xt self.pos-x.pos))
+                      )))))
+;;}}}
+
+;; {{{ stats
+(fn load-stats []
+  (set
+    stats
+    (doto
+      {:hits 0}
+      (tset :inc-hits! (fn [self]
+                         (set self.hits (+ self.hits 1))))
+      (tset :draw (fn [self]
+                    (love.graphics.print 
+                      (.. "hits: "  self.hits)
+                      (x-coord 0)
+                      (y-coord 0.2)
+                      ))))))
+;;}}}
+
+(fn love.load []
+  (fonts:load)
+  (load-player)
+  (load-enemy)
+  (load-stats))
 
 (fn love.draw []
   (player:draw)
+  (enemy:draw)
+  (stats:draw)
   (each [_ bullet (ipairs bullets)] (bullet:draw)))
 
 (fn love.update [dt]
+  (enemy:update dt)
+
   (if
     (love.keyboard.isDown "left") (player:move-left dt)
     (love.keyboard.isDown "right") (player:move-right dt)
@@ -175,12 +275,19 @@
 
   (player:update dt)
 
-  (let [not-visible []]
+  (let [not-visible []
+        enemy-hit   []]
     (each [i bullet (ipairs bullets)]
-      (when (not (bullet:visible?)) (table.insert not-visible i))
+      (if
+        (not (bullet:visible?)) (table.insert not-visible i)
+        (obj-overlap? enemy bullet) (table.insert enemy-hit i))
       (bullet:update dt))
     (each [_ i (ipairs not-visible)]
-      (table.remove bullets i))))
+      (table.remove bullets i))
+    (each [_ i (ipairs enemy-hit)]
+      (do
+        (stats:inc-hits!)
+        (table.remove bullets i)))))
 
 (fn love.keyreleased [key]
   (match key
