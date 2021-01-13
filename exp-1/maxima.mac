@@ -1,0 +1,37 @@
+DONUT_CENTRE:matrix([R2, 0, 0]);
+DONUT_CIRCLE:matrix([R1 * cos(q1), R1 * sin(q1), 0]);
+DONUT_CIRCLE1 : DONUT_CENTRE + DONUT_CIRCLE;
+
+ROT_Y : matrix(
+  [ cos(R_Y),   0, sin(R_Y)],
+  [ 0,          1, 0],
+  [ -sin(R_Y),  0, cos(R_Y)]
+);
+
+ROT_X : matrix(
+  [1, 0,        0],
+  [0, cos(R_X), -sin(R_X)],
+  [0, sin(R_X), cos(R_X)]
+);
+
+ROT_Z : matrix(
+  [ cos(R_Z), -sin(R_Z),  0 ],
+  [ sin(R_Z), cos(R_Z),   0 ],
+  [ 0,        0,          1 ]
+);
+
+FULL_ROT : ROT_Y . ROT_X . ROT_Z;
+
+VIEWPOINT : matrix([0, 1, -1]);
+
+FULL_DONUT_CIRCLE : DONUT_CIRCLE1 . FULL_ROT;
+
+CIRCLE_NORMAL : (DONUT_CIRCLE . FULL_ROT) / mat_norm(DONUT_CIRCLE . FULL_ROT, 1);
+
+CIRCLE_NORMAL_WOR : DONUT_CIRCLE / mat_norm(DONUT_CIRCLE, 1);
+
+CIRCLE_LIGHTING : CIRCLE_NORMAL . VIEWPOINT;
+
+CIRCLE_NORMAL2 : (matrix([cos(q1), sin(q1), 0]) . FULL_ROT) / mat_norm(matrix([cos(q1), sin(q1), 0]) . FULL_ROT, 1);
+
+CIRCLE_LIGHTING2 : CIRCLE_NORMAL2 . VIEWPOINT;
